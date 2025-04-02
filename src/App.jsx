@@ -6,7 +6,7 @@ function App() {
   const [inputValue, setInputValue] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editingText, setEditingText] = useState('')
-  const API_URL = 'http://localhost:5000/api/todos'
+  const API_URL = 'https://todo-backend-x40y.onrender.com/api/todos'
 
   // Fetch todos from backend when component mounts
   useEffect(() => {
