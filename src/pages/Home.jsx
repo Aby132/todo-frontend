@@ -18,6 +18,8 @@ import {
 import { Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material';
 import axios from 'axios';
 
+const API_BASE_URL = 'https://todo-backend-oifm.onrender.com/api';
+
 function Home() {
   const [todos, setTodos] = useState([]);
   const [newTodo, setNewTodo] = useState('');
@@ -30,7 +32,7 @@ function Home() {
 
   const fetchTodos = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/todos');
+      const response = await axios.get(`${API_BASE_URL}/todos`);
       setTodos(response.data);
     } catch (error) {
       console.error('Error fetching todos:', error);
@@ -42,7 +44,7 @@ function Home() {
     if (!newTodo.trim()) return;
 
     try {
-      const response = await axios.post('http://localhost:5000/api/todos', {
+      const response = await axios.post(`${API_BASE_URL}/todos`, {
         text: newTodo,
       });
       setTodos([...todos, response.data]);
@@ -54,7 +56,7 @@ function Home() {
 
   const handleDeleteTodo = async (id) => {
     try {
-      await axios.delete(`http://localhost:5000/api/todos/${id}`);
+      await axios.delete(`${API_BASE_URL}/todos/${id}`);
       setTodos(todos.filter((todo) => todo._id !== id));
     } catch (error) {
       console.error('Error deleting todo:', error);
@@ -68,7 +70,7 @@ function Home() {
 
   const handleEditSubmit = async () => {
     try {
-      await axios.put(`http://localhost:5000/api/todos/${editTodo.id}`, {
+      await axios.put(`${API_BASE_URL}/todos/${editTodo.id}`, {
         text: editTodo.text,
       });
       setTodos(
