@@ -14,17 +14,25 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import { Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material';
 import axios from 'axios';
 
 const API_BASE_URL = 'https://todo-backend-oifm.onrender.com/api';
 
+// Configure axios defaults
+axios.defaults.timeout = 10000; // 10 seconds timeout
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+
 function Home() {
   const [todos, setTodos] = useState([]);
   const [newTodo, setNewTodo] = useState('');
   const [editTodo, setEditTodo] = useState({ id: null, text: '' });
   const [openDialog, setOpenDialog] = useState(false);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchTodos();
@@ -32,10 +40,15 @@ function Home() {
 
   const fetchTodos = async () => {
     try {
+      setLoading(true);
       const response = await axios.get(`${API_BASE_URL}/todos`);
       setTodos(response.data);
+      setError(null);
     } catch (error) {
       console.error('Error fetching todos:', error);
+      setError('Failed to fetch todos. Please try again later.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -44,22 +57,32 @@ function Home() {
     if (!newTodo.trim()) return;
 
     try {
+      setLoading(true);
       const response = await axios.post(`${API_BASE_URL}/todos`, {
         text: newTodo,
       });
       setTodos([...todos, response.data]);
       setNewTodo('');
+      setError(null);
     } catch (error) {
       console.error('Error adding todo:', error);
+      setError('Failed to add todo. Please try again later.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDeleteTodo = async (id) => {
     try {
+      setLoading(true);
       await axios.delete(`${API_BASE_URL}/todos/${id}`);
       setTodos(todos.filter((todo) => todo._id !== id));
+      setError(null);
     } catch (error) {
       console.error('Error deleting todo:', error);
+      setError('Failed to delete todo. Please try again later.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -70,6 +93,7 @@ function Home() {
 
   const handleEditSubmit = async () => {
     try {
+      setLoading(true);
       await axios.put(`${API_BASE_URL}/todos/${editTodo.id}`, {
         text: editTodo.text,
       });
@@ -79,9 +103,17 @@ function Home() {
         )
       );
       setOpenDialog(false);
+      setError(null);
     } catch (error) {
       console.error('Error updating todo:', error);
+      setError('Failed to update todo. Please try again later.');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleCloseError = () => {
+    setError(null);
   };
 
   return (
@@ -106,11 +138,13 @@ function Home() {
             value={newTodo}
             onChange={(e) => setNewTodo(e.target.value)}
             sx={{ backgroundColor: 'white' }}
+            disabled={loading}
           />
           <Button
             type="submit"
             variant="contained"
             color="primary"
+            disabled={loading}
             sx={{
               px: 4,
               '&:hover': {
@@ -119,7 +153,7 @@ function Home() {
               },
             }}
           >
-            Add
+            {loading ? 'Adding...' : 'Add'}
           </Button>
         </form>
       </Paper>
@@ -146,6 +180,7 @@ function Home() {
                 aria-label="edit"
                 onClick={() => handleEditClick(todo)}
                 sx={{ mr: 1 }}
+                disabled={loading}
               >
                 <EditIcon />
               </IconButton>
@@ -153,6 +188,7 @@ function Home() {
                 edge="end"
                 aria-label="delete"
                 onClick={() => handleDeleteTodo(todo._id)}
+                disabled={loading}
               >
                 <DeleteIcon />
               </IconButton>
@@ -170,15 +206,29 @@ function Home() {
             fullWidth
             value={editTodo.text}
             onChange={(e) => setEditTodo({ ...editTodo, text: e.target.value })}
+            disabled={loading}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-          <Button onClick={handleEditSubmit} color="primary">
-            Save
+          <Button onClick={() => setOpenDialog(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button onClick={handleEditSubmit} color="primary" disabled={loading}>
+            {loading ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={handleCloseError}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseError} severity="error" sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
