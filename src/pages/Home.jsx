@@ -16,6 +16,7 @@ import {
   DialogActions,
   Snackbar,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import { Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material';
 import axios from 'axios';
@@ -23,32 +24,75 @@ import axios from 'axios';
 const API_BASE_URL = 'https://todo-backend-oifm.onrender.com/api';
 
 // Configure axios defaults
-axios.defaults.timeout = 10000; // 10 seconds timeout
+axios.defaults.timeout = 30000; // 30 seconds timeout
 axios.defaults.headers.common['Content-Type'] = 'application/json';
+
+// Add retry logic
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // If the error is a timeout and we haven't retried yet
+    if (error.code === 'ECONNABORTED' && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      // Wait for 2 seconds before retrying
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Retry the request
+      return axios(originalRequest);
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 function Home() {
   const [todos, setTodos] = useState([]);
   const [newTodo, setNewTodo] = useState('');
-  const [editTodo, setEditTodo] = useState({ id: null, text: '' });
+  const [editTodo, setEditTodo] = useState({ _id: null, text: '' });
   const [openDialog, setOpenDialog] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     fetchTodos();
   }, []);
 
+  const getTodoId = (todo) => todo._id || todo.id;
+
   const fetchTodos = async () => {
     try {
       setLoading(true);
+      setRetrying(false);
       const response = await axios.get(`${API_BASE_URL}/todos`);
-      setTodos(response.data);
+      setTodos(response.data.map(todo => ({
+        ...todo,
+        _id: todo._id || todo.id // Ensure we always have _id
+      })));
       setError(null);
     } catch (error) {
       console.error('Error fetching todos:', error);
-      setError('Failed to fetch todos. Please try again later.');
+      if (error.code === 'ECONNABORTED') {
+        setRetrying(true);
+        try {
+          const retryResponse = await axios.get(`${API_BASE_URL}/todos`);
+          setTodos(retryResponse.data.map(todo => ({
+            ...todo,
+            _id: todo._id || todo.id
+          })));
+          setError(null);
+        } catch (retryError) {
+          setError('Server is taking too long to respond. Please try again later.');
+        }
+      } else {
+        setError('Failed to fetch todos. Please try again later.');
+      }
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   };
 
@@ -61,7 +105,11 @@ function Home() {
       const response = await axios.post(`${API_BASE_URL}/todos`, {
         text: newTodo,
       });
-      setTodos([...todos, response.data]);
+      const newTodoItem = {
+        ...response.data,
+        _id: response.data._id || response.data.id
+      };
+      setTodos([...todos, newTodoItem]);
       setNewTodo('');
       setError(null);
     } catch (error) {
@@ -72,41 +120,77 @@ function Home() {
     }
   };
 
-  const handleDeleteTodo = async (id) => {
+  const handleDeleteTodo = async (todoId) => {
+    if (!todoId) {
+      setError('Invalid todo ID');
+      return;
+    }
+
     try {
       setLoading(true);
-      await axios.delete(`${API_BASE_URL}/todos/${id}`);
-      setTodos(todos.filter((todo) => todo._id !== id));
-      setError(null);
+      const response = await axios.delete(`${API_BASE_URL}/todos/${todoId}`);
+      if (response.status === 200) {
+        setTodos(todos.filter((todo) => getTodoId(todo) !== todoId));
+        setError(null);
+      }
     } catch (error) {
       console.error('Error deleting todo:', error);
-      setError('Failed to delete todo. Please try again later.');
+      if (error.response) {
+        setError(error.response.data.message || 'Failed to delete todo');
+      } else {
+        setError('Failed to delete todo. Please try again later.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleEditClick = (todo) => {
-    setEditTodo({ id: todo._id, text: todo.text });
+    const todoId = getTodoId(todo);
+    if (!todo || !todoId) {
+      setError('Invalid todo item');
+      return;
+    }
+    setEditTodo({ _id: todoId, text: todo.text });
     setOpenDialog(true);
   };
 
   const handleEditSubmit = async () => {
+    if (!editTodo._id) {
+      setError('Invalid todo ID');
+      return;
+    }
+
+    if (!editTodo.text.trim()) {
+      setError('Todo text cannot be empty');
+      return;
+    }
+
     try {
       setLoading(true);
-      await axios.put(`${API_BASE_URL}/todos/${editTodo.id}`, {
+      const response = await axios.put(`${API_BASE_URL}/todos/${editTodo._id}`, {
         text: editTodo.text,
       });
-      setTodos(
-        todos.map((todo) =>
-          todo._id === editTodo.id ? { ...todo, text: editTodo.text } : todo
-        )
-      );
-      setOpenDialog(false);
-      setError(null);
+      if (response.status === 200) {
+        const updatedTodo = {
+          ...response.data,
+          _id: response.data._id || response.data.id
+        };
+        setTodos(
+          todos.map((todo) =>
+            getTodoId(todo) === editTodo._id ? updatedTodo : todo
+          )
+        );
+        setOpenDialog(false);
+        setError(null);
+      }
     } catch (error) {
       console.error('Error updating todo:', error);
-      setError('Failed to update todo. Please try again later.');
+      if (error.response) {
+        setError(error.response.data.message || 'Failed to update todo');
+      } else {
+        setError('Failed to update todo. Please try again later.');
+      }
     } finally {
       setLoading(false);
     }
@@ -125,8 +209,32 @@ function Home() {
           mb: 4,
           backgroundColor: 'white',
           borderRadius: 2,
+          position: 'relative',
         }}
       >
+        {loading && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.7)',
+              zIndex: 1,
+            }}
+          >
+            <CircularProgress />
+            {retrying && (
+              <Typography variant="body2" sx={{ ml: 2 }}>
+                Retrying...
+              </Typography>
+            )}
+          </Box>
+        )}
         <Typography variant="h5" component="h1" gutterBottom sx={{ color: 'primary.main' }}>
           What's on your mind today?
         </Typography>
@@ -161,7 +269,7 @@ function Home() {
       <List>
         {todos.map((todo) => (
           <ListItem
-            key={todo._id}
+            key={getTodoId(todo)}
             sx={{
               mb: 2,
               backgroundColor: 'white',
@@ -173,7 +281,13 @@ function Home() {
               },
             }}
           >
-            <ListItemText primary={todo.text} />
+            <ListItemText 
+              primary={todo.text}
+              primaryTypographyProps={{
+                component: 'div',
+                style: { wordBreak: 'break-word' }
+              }}
+            />
             <ListItemSecondaryAction>
               <IconButton
                 edge="end"
@@ -187,7 +301,7 @@ function Home() {
               <IconButton
                 edge="end"
                 aria-label="delete"
-                onClick={() => handleDeleteTodo(todo._id)}
+                onClick={() => handleDeleteTodo(getTodoId(todo))}
                 disabled={loading}
               >
                 <DeleteIcon />
